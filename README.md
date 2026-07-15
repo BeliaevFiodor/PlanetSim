@@ -20,6 +20,8 @@ Start here:
 - [docs/03-data-model.md](docs/03-data-model.md)
 - [docs/04-mvp-scope.md](docs/04-mvp-scope.md)
 - [docs/05-open-questions.md](docs/05-open-questions.md)
+- [docs/06-agent-work-brief.md](docs/06-agent-work-brief.md)
+- [docs/07-architecture-impl.md](docs/07-architecture-impl.md)
 
 ## Working Rules
 
