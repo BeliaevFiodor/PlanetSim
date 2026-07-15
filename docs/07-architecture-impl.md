@@ -60,6 +60,285 @@ Additional copies of the world should be avoided during normal ticking. New snap
 - deterministic test fixtures,
 - debugging when explicitly needed.
 
+## High-Level WorldState Contract
+
+The first scaffold should define `WorldState` as a composition of a small number of explicit top-level sections rather than as a flat bag of fields.
+
+Recommended top-level sections:
+
+- `WorldIdentity`
+- `SimulationContext`
+- `SourceParameters`
+- `StarState`
+- `OrbitState`
+- `PlanetState`
+- `AtmosphereState`
+- `HydrosphereState`
+- `CryosphereState`
+- `GeologyState`
+- `DerivedState`
+- `EventState`
+
+The exact class names can change later, but the separation of responsibilities should remain stable.
+
+### Section Roles
+
+#### `WorldIdentity`
+
+Purpose:
+
+- stable world identifier,
+- scenario identifier,
+- model version,
+- save format version.
+
+Data type:
+
+- metadata only.
+
+Ownership:
+
+- simulation core,
+- later persistence layer for serialization concerns.
+
+#### `SimulationContext`
+
+Purpose:
+
+- current simulation time,
+- tick counter,
+- seed and deterministic randomization context,
+- active scenario overrides,
+- temporary interventions that are still in effect.
+
+Data type:
+
+- mutable simulation control state.
+
+Ownership:
+
+- scheduler and simulation core.
+
+#### `SourceParameters`
+
+Purpose:
+
+- player-editable base inputs,
+- initial star settings,
+- initial orbit settings,
+- initial planetary composition and size,
+- editable climate and tectonic intensity knobs,
+- catastrophe frequency controls when those are introduced.
+
+Data type:
+
+- source parameters only.
+
+Ownership:
+
+- simulation core as the authoritative container,
+- edited by presentation and scenario tooling later,
+- read by all domain systems.
+
+#### `StarState`
+
+Purpose:
+
+- luminosity,
+- spectral characteristics,
+- variability profile,
+- stellar age,
+- current effective radiation output.
+
+Data type:
+
+- mostly source-backed state with some mutable or computed runtime values if variability is modeled.
+
+Ownership:
+
+- star and illumination system.
+
+#### `OrbitState`
+
+Purpose:
+
+- semi-major axis,
+- eccentricity,
+- inclination,
+- axial tilt,
+- rotation period,
+- orbital period,
+- current orbital position,
+- current seasonal and day-cycle phase.
+
+Data type:
+
+- mixed source and mutable state.
+
+Ownership:
+
+- orbit and illumination system.
+
+#### `PlanetState`
+
+Purpose:
+
+- mass,
+- radius,
+- gravity,
+- internal heat budget,
+- magnetic field strength,
+- land/ocean distribution baseline,
+- planetary surface configuration that does not belong exclusively to atmosphere or water systems.
+
+Data type:
+
+- mixed source and mutable state.
+
+Ownership:
+
+- shared container owned by the simulation core,
+- geology and tectonics system owns the mutable surface-shape slice,
+- other systems may read but should not rewrite unrelated slices.
+
+#### `AtmosphereState`
+
+Purpose:
+
+- composition,
+- pressure,
+- greenhouse forcing,
+- aerosol load,
+- cloud properties,
+- temperature fields and climate values that are treated as mutable state.
+
+Data type:
+
+- mutable domain state plus some source-backed configuration.
+
+Ownership:
+
+- atmosphere and climate system.
+
+#### `HydrosphereState`
+
+Purpose:
+
+- ocean coverage,
+- sea level,
+- salinity,
+- circulation values,
+- evaporation and precipitation balance.
+
+Data type:
+
+- mutable domain state plus some source-backed quantities.
+
+Ownership:
+
+- oceans and ice system for ocean behavior,
+- climate systems may influence it through defined inputs rather than direct uncontrolled mutation.
+
+#### `CryosphereState`
+
+Purpose:
+
+- ice coverage,
+- glacial extent,
+- snow albedo,
+- freeze and thaw state.
+
+Data type:
+
+- mutable domain state.
+
+Ownership:
+
+- oceans and ice system.
+
+#### `GeologyState`
+
+Purpose:
+
+- tectonic activity,
+- volcanic activity,
+- crust and mantle exchange summaries,
+- uplift, erosion, and major surface reshaping indicators,
+- long-timescale heat and surface change state.
+
+Data type:
+
+- mutable domain state plus some source-backed intensity settings.
+
+Ownership:
+
+- geology and tectonics system.
+
+#### `DerivedState`
+
+Purpose:
+
+- values that are computed from other sections,
+- habitability indicators,
+- climate summaries,
+- stability scores,
+- explanation-ready aggregate indicators.
+
+Data type:
+
+- derived values only.
+
+Ownership:
+
+- simulation core as the storage boundary,
+- populated by the system or systems that compute each value.
+
+Rule:
+
+- nothing in `DerivedState` should be the sole source of truth for underlying simulation logic.
+
+#### `EventState`
+
+Purpose:
+
+- recent emitted simulation events,
+- significant transitions,
+- explanation anchors for replay and AI summaries.
+
+Data type:
+
+- mutable event history and event queue state.
+
+Ownership:
+
+- event layer, with domain systems emitting into it.
+
+### State Classification Rule
+
+Every field placed in `WorldState` should be classified as one of:
+
+- source parameter,
+- mutable simulation state,
+- derived value,
+- metadata.
+
+That classification should be obvious from the surrounding section so future agents do not need to infer whether a value is editable, simulated, or computed.
+
+### Ownership Rule
+
+Each mutable slice of the world should have one primary owner.
+
+For the first scaffold, ownership should be interpreted like this:
+
+- orbit system owns orbital progression and light-cycle progression,
+- climate system owns atmosphere and temperature evolution,
+- oceans and ice system owns ocean and ice evolution,
+- geology system owns tectonics and long-term surface reshaping,
+- simulation core owns world assembly, lifecycle coordination, and cross-cutting metadata,
+- event layer owns event storage and publication mechanics.
+
+Systems may read across boundaries, but cross-system writes should happen only through explicit contracts rather than ad hoc mutation.
+
 ## Domain System Boundaries
 
 Each domain system should own a well-defined slice of the shared world state.
