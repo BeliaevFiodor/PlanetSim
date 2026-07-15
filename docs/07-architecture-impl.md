@@ -643,3 +643,263 @@ Implementation should begin only when the documentation set clearly answers:
 - what must be unit tested before expansion.
 
 This document is intended to serve as that bridge between high-level design and the first code scaffold.
+
+## First System Contracts
+
+This section defines what each of the three first-slice systems owns, reads, produces, and must behave like.
+
+Each contract follows the same structure:
+
+- identity,
+- cadence group,
+- owned state,
+- read-only inputs,
+- outputs and events,
+- determinism requirements,
+- test expectations.
+
+---
+
+### System: Orbit and Illumination
+
+**Identity**
+
+A single system responsible for advancing orbital position and computing the current illumination state.
+
+**Cadence group**
+
+`Fast`
+
+**Owned state**
+
+In `OrbitState`:
+
+- current orbital position,
+- current orbital phase fraction,
+- current day-cycle phase,
+- current seasonal phase.
+
+**Read-only inputs**
+
+From `SourceParameters`:
+
+- semi-major axis,
+- eccentricity,
+- orbital period,
+- rotation period,
+- axial tilt.
+
+From `StarState`:
+
+- effective radiation output.
+
+From `SimulationContext`:
+
+- elapsed time this tick.
+
+**Outputs**
+
+Updates to owned `OrbitState` fields.
+
+Computed values placed in `DerivedState`:
+
+- current solar irradiance at the planet,
+- current day fraction,
+- current season fraction,
+- current top-of-atmosphere energy input.
+
+Events emitted:
+
+- when a year boundary is crossed,
+- when a solstice or equinox is reached if tracked.
+
+**Determinism requirements**
+
+- must not use wall-clock time,
+- orbital progression must be fully determined by tick context and source parameters,
+- illumination values must be computable from orbit state alone.
+
+**Test expectations**
+
+- orbital position advances correctly over a fixed number of ticks,
+- day and year boundaries are crossed at expected tick counts for given source parameters,
+- solar irradiance at perihelion and aphelion matches expected values for given eccentricity,
+- replay of same seed and source parameters produces identical progression.
+
+---
+
+### System: Heat Balance
+
+**Identity**
+
+A single system responsible for computing the surface temperature distribution from orbital illumination and atmospheric properties.
+
+**Cadence group**
+
+`Fast`
+
+**Owned state**
+
+In `AtmosphereState`:
+
+- mean surface temperature,
+- equilibrium temperature trend,
+- thermal inertia state if modeled explicitly.
+
+**Read-only inputs**
+
+From `DerivedState`:
+
+- current solar irradiance at the planet,
+- current top-of-atmosphere energy input.
+
+From `AtmosphereState`:
+
+- greenhouse forcing,
+- albedo contribution from cloud properties.
+
+From `PlanetState`:
+
+- surface albedo baseline.
+
+From `HydrosphereState`:
+
+- ocean coverage fraction for thermal capacity estimates.
+
+From `CryosphereState`:
+
+- ice coverage for albedo adjustment.
+
+From `SimulationContext`:
+
+- elapsed time this tick.
+
+**Outputs**
+
+Updates to owned `AtmosphereState` temperature fields.
+
+Computed values placed in `DerivedState`:
+
+- effective planetary temperature,
+- surface equilibrium temperature,
+- estimated habitable zone margin indicator.
+
+Events emitted:
+
+- when surface temperature crosses a significant threshold,
+- when the temperature change rate exceeds a configured limit for a sustained period.
+
+**Determinism requirements**
+
+- temperature values must be computable from readable inputs alone,
+- must not introduce hidden state outside `AtmosphereState`,
+- no wall-clock or ambient time dependencies.
+
+**Test expectations**
+
+- equilibrium temperature is computed correctly for a given irradiance and albedo,
+- greenhouse forcing raises equilibrium temperature by the expected amount,
+- ice-albedo feedback raises albedo and lowers temperature when ice coverage increases,
+- events are emitted at expected temperature thresholds,
+- replay of same seed and inputs produces identical state progression.
+
+---
+
+### System: Geology and Tectonics
+
+**Identity**
+
+A single system responsible for advancing long-term surface reshaping driven by internal heat, tectonic activity, and volcanic forcing.
+
+**Cadence group**
+
+`Slow`
+
+**Owned state**
+
+In `GeologyState`:
+
+- tectonic activity index,
+- volcanic activity index,
+- crust-mantle exchange rate,
+- cumulative surface uplift or subsidence indicator,
+- long-term erosion state indicator.
+
+**Read-only inputs**
+
+From `SourceParameters`:
+
+- tectonic intensity knob,
+- volcanic intensity knob.
+
+From `PlanetState`:
+
+- internal heat budget.
+
+From `SimulationContext`:
+
+- elapsed time since last execution,
+- current global tick index,
+- seed-derived randomness context.
+
+**Outputs**
+
+Updates to owned `GeologyState` fields.
+
+Updates to `PlanetState`:
+
+- land and ocean distribution baseline when significant surface change occurs.
+
+Computed values placed in `DerivedState`:
+
+- surface age and reshaping summary indicator,
+- current volcanic forcing contribution for the atmosphere system.
+
+Events emitted:
+
+- when a major surface reshaping event crosses a configured threshold,
+- when a significant volcanic episode occurs,
+- when crust-mantle exchange reaches a notable rate.
+
+**Determinism requirements**
+
+- all randomness must come from seed-derived context provided by tick context,
+- tectonic and volcanic state changes must be computable from tick context and owned state alone,
+- outputs that cross system boundaries must be written to explicit fields rather than mutating other systems directly.
+
+**Test expectations**
+
+- tectonic activity index advances predictably over slow-cadence ticks,
+- no updates occur when the system is skipped on fast ticks,
+- major surface events are emitted at expected intervals for given tectonic intensity,
+- land/ocean distribution changes are written only to `PlanetState` and not to atmosphere or hydrosphere sections directly,
+- replay of same seed produces identical event sequence and state transitions.
+
+---
+
+### Cross-System Dependencies for the First Slice
+
+The three first systems interact in this direction:
+
+1. Orbit and illumination runs first (fast cadence) and places irradiance into `DerivedState`.
+2. Heat balance runs second (fast cadence) and reads irradiance from `DerivedState` to update temperature.
+3. Geology runs on its own cadence (slow) and updates surface configuration, which future fast-cadence executions may read.
+
+No backward dependency exists in the first slice. Geology does not read from temperature. Heat balance does not read from geology directly. Orbit does not read from either.
+
+This dependency direction should be documented as a constraint and not violated without updating this contract.
+
+---
+
+### Deferred System Contracts
+
+The following systems are recognized as planned but deferred:
+
+- atmosphere chemistry and long-term gas exchange,
+- oceans and hydrosphere evolution,
+- cryosphere,
+- geochemistry,
+- biosphere and evolution,
+- civilization and history.
+
+Contracts for each of these should be added before implementation of the corresponding system begins.
