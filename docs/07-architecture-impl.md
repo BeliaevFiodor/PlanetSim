@@ -386,6 +386,182 @@ Recommended cadence groups:
 
 This keeps the model simple enough for testing while still matching the requirement that different layers evolve on different timescales.
 
+## Scheduler Contract
+
+The scheduler is the mechanism that advances one global simulation clock and decides which systems execute on each step.
+
+### Scheduler Responsibilities
+
+For the first scaffold, the scheduler should be responsible for:
+
+- advancing canonical simulation time,
+- advancing the global tick counter,
+- selecting which systems are due to run,
+- invoking systems in a deterministic order,
+- passing a consistent tick context to each system,
+- ensuring skipped systems preserve prior state until their next due execution,
+- routing event-triggered executions through explicit rules instead of hidden side effects.
+
+The scheduler should not contain domain logic for climate, geology, oceans, or other world behavior. Its role is coordination, not simulation.
+
+### Global Clock Rule
+
+There should be one authoritative simulation clock for the whole world.
+
+That means:
+
+- no per-system clocks as separate sources of truth,
+- no duplicated world timelines,
+- no independent local times that can drift from the canonical world time.
+
+Systems may reason about cadence or elapsed time since their last execution, but they must do so from scheduler-provided context derived from the same global clock.
+
+### Base Tick Rule
+
+The scheduler should advance the simulation using one smallest base step for the current model.
+
+That base step is the unit that:
+
+- increments the world clock,
+- increments the tick counter,
+- determines when cadence groups become due.
+
+Fast systems may run every base tick. Medium and slow systems may run only on selected ticks derived from that same base sequence.
+
+### Cadence Group Rule
+
+For the first scaffold, cadence should be expressed as named groups rather than fully custom intervals on every system.
+
+Recommended groups:
+
+- `Fast`
+- `Medium`
+- `Slow`
+
+Interpretation:
+
+- `Fast` systems run every base tick,
+- `Medium` systems run on a fixed recurring subset of ticks,
+- `Slow` systems run on a less frequent fixed recurring subset of ticks.
+
+The exact numeric ratios can remain configurable later, but the initial implementation should keep them explicit and simple enough to unit test.
+
+### Execution Rules
+
+The scheduler should follow these execution rules:
+
+1. Advance the canonical clock once per base tick.
+2. Determine which cadence groups are due for that tick.
+3. Build the ordered list of systems that are due.
+4. Execute those systems in a fixed deterministic order.
+5. Allow each system to update only its owned slice of `WorldState`.
+6. Collect emitted events.
+7. Make resulting state available for the next base tick.
+
+Important execution constraints:
+
+- system order must not depend on hash order, registration timing accidents, or thread scheduling,
+- systems that are not due must not execute partial logic,
+- systems should observe the same tick context for the same scheduled step,
+- repeated runs with the same seed and inputs must produce the same execution schedule and resulting state transitions.
+
+### Event-Triggered Rule
+
+Some major events may require immediate handling outside ordinary cadence boundaries.
+
+For the first scaffold, this should still remain deterministic:
+
+- event-triggered execution must be explicit,
+- event rules must be ordered,
+- event-triggered work must still use the same world state and canonical clock,
+- the scheduler must record when an out-of-band execution occurred and why.
+
+This prevents the event mechanism from becoming a hidden second scheduler.
+
+### Schedulable System Contract
+
+To participate in scheduling, a system should expose at least the following concepts:
+
+- stable system identity,
+- declared cadence group,
+- declared execution order or ordering key,
+- a pure update entry point that accepts the current `WorldState` and tick context,
+- emitted events or state transition outputs in a structured form.
+
+At the documentation level, every schedulable system must answer:
+
+- what slice of `WorldState` it owns,
+- which other sections it may read,
+- which cadence group it belongs to,
+- whether it can also react to explicit events,
+- what deterministic inputs it depends on.
+
+### Tick Context
+
+Each execution should receive a scheduler-provided context containing enough information to behave deterministically.
+
+That context should include:
+
+- current canonical time,
+- current global tick index,
+- current cadence group being executed,
+- elapsed time since the system last ran,
+- seed-derived deterministic randomness context if randomness is used,
+- any explicit event trigger information for this execution.
+
+The purpose of this context is to avoid hidden dependencies on external clocks or ambient state.
+
+### Deterministic Ticking Rule
+
+Deterministic ticking means that the same:
+
+- starting `WorldState`,
+- source parameters,
+- scenario overrides,
+- seed,
+- scheduler configuration,
+- system registration list,
+- system execution order
+
+must produce the same:
+
+- sequence of due systems,
+- event emissions,
+- resulting world states.
+
+To preserve that property, the first scaffold should avoid:
+
+- wall-clock time,
+- unordered iteration for system scheduling,
+- non-seeded randomness,
+- asynchronous mutation of shared state during a tick,
+- hidden writes outside the scheduler-controlled update cycle.
+
+### First-Slice Scheduling Assignment
+
+For the first executable slice, the initial assignment should be:
+
+- orbit and illumination: `Fast`,
+- heat balance: `Fast`,
+- tectonics and long-term surface change: `Slow`.
+
+This is sufficient to prove that:
+
+- different systems can run at different cadences,
+- one shared `WorldState` can evolve safely,
+- the scheduler can be unit tested independently from domain details.
+
+### Testing Expectations for the Scheduler
+
+The first unit tests around the scheduler should verify:
+
+- due-system selection by cadence group,
+- fixed execution order,
+- correct advancement of canonical time,
+- correct skipped execution behavior for non-due systems,
+- deterministic reproduction of multi-tick runs,
+- deterministic handling of explicit event-triggered executions.
+
 ## First Executable Slice
 
 The first executable simulation slice should stay intentionally small:
